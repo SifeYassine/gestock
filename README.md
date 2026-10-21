@@ -1,100 +1,166 @@
-# Installation Guide
+# GeStock
 
-## Prerequisites
+**GeStock** is a stock and inventory management **REST API** built with **Laravel 11**. It manages products, categories, suppliers, customers, orders, and inventories, and secures everything with **Sanctum** token authentication and a **role & permission** system.
 
-Before you begin, ensure you have met the following requirements:
+A UML class diagram of the domain is included in [`UML class Diagram.pdf`](UML%20class%20Diagram.pdf).
 
--   [Composer](https://getcomposer.org/download/) installed on your machine
--   [Node.js and npm](https://nodejs.org/) installed on your machine
+## Features
 
-## Cloning the Repository
+- **Authentication** with Laravel Sanctum (register, login, logout)
+- **Role-based access control**: roles, permissions, and role ↔ permission assignment, enforced by custom `role` and `permission` middleware
+  - The **first registered user becomes `Admin`**; later users get the `User` role
+- **Inventory domain** with full CRUD:
+  - Products (linked to a category and a supplier)
+  - Categories, Suppliers, Customers
+  - Orders (status: `processing` / `completed` / `cancelled`) with order line items (quantity, price)
+  - Inventories (capacity, current stock, location) with per-product quantities
+- **Factories & seeders** for quick demo data
+- **Auto-generated API docs** via [laravel-request-docs](https://github.com/rakutentech/laravel-request-docs)
 
-1. **Open your terminal.**
-2. **Navigate to the directory where you want to clone the repository:**
+## Tech Stack
 
-    ```bash
-    cd path/to/your/directory
-    ```
+- PHP 8.2+, Laravel 11
+- Laravel Sanctum
+- MySQL (or SQLite)
+- rakutentech/laravel-request-docs
 
-3. **Run the following command to clone the repository:**
+## Data Model
 
-    ```bash
-    git clone https://github.com/SifeYassine/GeStock.git
-    ```
+```
+Role ──< User ──< Order >── Customer
+ │                 │
+ └─< PermissionRole >── Permission
+                   │
+              OrderProduct >── Product >── Category
+                                  │  └──── Supplier
+                     InventoryProduct >── Inventory
+```
 
-## Installing Dependencies
+| Table               | Key fields |
+| ------------------- | ---------- |
+| `users`             | `username`, `password`, `role_id` |
+| `roles`             | `name`, `description` |
+| `permissions`       | `label`, `description` |
+| `customers`         | `name`, `email`, `phone`, `address` |
+| `suppliers`         | `name`, `email`, `phone`, `address` |
+| `categories`        | `name`, `description` |
+| `products`          | `name`, `description`, `price`, `category_id`, `supplier_id` |
+| `orders`            | `total_price`, `status`, `customer_id`, `user_id` |
+| `order_product`     | `order_id`, `product_id`, `quantity`, `price` |
+| `inventories`       | `capacity`, `current_stock`, `location` |
+| `inventory_product` | `inventory_id`, `product_id`, `quantity` |
 
-1. **Install PHP dependencies using Composer:**
+## Getting Started
 
-    ```bash
-    composer install
-    ```
+### Prerequisites
 
-2. **Install JavaScript dependencies using npm:**
+- PHP 8.2+ and [Composer](https://getcomposer.org/)
+- [Node.js](https://nodejs.org/) and npm
+- MySQL (or use SQLite)
 
-    ```bash
-    npm install
-    ```
+> Prefer containers? See [dockerize-gestock](https://github.com/SifeYassine/dockerize-gestock) for a ready-made Docker Compose setup.
 
-3. **Build the project:**
+### Installation
 
-    ```bash
-     npm run build
-    ```
+```bash
+git clone https://github.com/SifeYassine/gestock.git
+cd gestock
 
-## Setting Up Environment Variables
+composer install
+npm install && npm run build
 
-1. **Open the `.env` file in a text editor and set up your database and other environment variables as needed:**
+cp .env.example .env
+php artisan key:generate
+```
 
-    ```env
-    APP_NAME=Laravel
-    APP_ENV=local
-    APP_KEY=base64:...
-    APP_DEBUG=true
-    APP_URL=http://localhost
+### Configure the database
 
-    LOG_CHANNEL=stack
-    LOG_DEPRECATIONS_CHANNEL=null
-    LOG_LEVEL=debug
+Edit `.env`:
 
-    DB_CONNECTION=mysql
-    DB_HOST=127.0.0.1
-    DB_PORT=3306
-    DB_DATABASE=your_database
-    DB_USERNAME=your_username
-    DB_PASSWORD=your_password...
-    ```
+```env
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=gestock
+DB_USERNAME=root
+DB_PASSWORD=
+```
 
-## Generating Application Key
+### Migrate
 
-1. **Generate the application key:**
+```bash
+php artisan migrate
+```
 
-    ```bash
-    php artisan key:generate
-    ```
+### Create the default roles
 
-## Running Migrations and Seeders
+Registration assigns the `Admin` or `User` role by name, so both must exist before the first sign-up:
 
-1. **Run the database migrations:**
+```bash
+php artisan tinker
+>>> \App\Models\Role::create(['name' => 'Admin', 'description' => 'Administrator']);
+>>> \App\Models\Role::create(['name' => 'User',  'description' => 'Standard user']);
+```
 
-    ```bash
-    php artisan migrate
-    ```
+Optionally seed demo data:
 
-## Serving the Application
+```bash
+php artisan db:seed
+```
 
-1. **Serve the application locally:**
+### Run
 
-    ```bash
-    php artisan serve
-    ```
+```bash
+php artisan serve
+```
 
-2. **Open your browser and navigate to the following URL:**
+- API base URL: `http://127.0.0.1:8000/api`
+- API docs: `http://127.0.0.1:8000/request-docs`
 
-    ```
-    http://127.0.0.1:8000
-    ```
+## API Overview
 
-If you encounter any issues, please refer to the [Laravel Documentation](https://laravel.com/docs) or open an issue in the repository.
+All routes are prefixed with `/api`. Except for `register` and `login`, every route requires `Authorization: Bearer <token>`.
 
-Happy coding!
+### Auth
+
+| Method | Endpoint         | Description |
+| ------ | ---------------- | ----------- |
+| POST   | `/auth/register` | `{ "username", "password" }` |
+| POST   | `/auth/login`    | Returns a Sanctum token |
+| POST   | `/auth/logout`   | Revokes the current token |
+
+### Resources
+
+Customers, orders, categories, suppliers, products, and inventories all follow the same pattern:
+
+| Method | Endpoint                      |
+| ------ | ----------------------------- |
+| POST   | `/{resource}/create`          |
+| GET    | `/{resource}/index`           |
+| PUT    | `/{resource}/update/{id}`     |
+| DELETE | `/{resource}/delete/{id}`     |
+
+### Pivots
+
+| Method | Endpoint |
+| ------ | -------- |
+| POST / PUT / DELETE | `/orders/{orderId}/products/{productId}/{create\|update\|delete}` |
+| GET    | `/orders/products/index` |
+| POST / PUT / DELETE | `/inventories/{inventoryId}/products/{productId}/{create\|update\|delete}` |
+| GET    | `/inventories/products/index` |
+
+### Administration
+
+| Endpoint group | Access |
+| -------------- | ------ |
+| `/roles/*`, `/permissions/*`, `/roles/{roleId}/permissions/{permissionId}/*` | `Admin` role |
+| `/users/index`, `/users/update/{id}`, `/users/delete/{id}` | Permissions `Index users`, `Update user`, `Delete user` |
+
+## Related Repositories
+
+- [gestock-frontend](https://github.com/SifeYassine/gestock-frontend): Vue.js frontend
+- [dockerize-gestock](https://github.com/SifeYassine/dockerize-gestock): Docker setup
+
+## Author
+
+**Sifeddine Yassine** · [@SifeYassine](https://github.com/SifeYassine)
